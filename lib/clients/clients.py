@@ -12,7 +12,7 @@ class DBClient:
         self.collection_name = collection_name
         self.client = chromadb.PersistentClient(path=path)
         self.processor = DataProcessor()
-   
+        self.embedder_obj = Embedder()
         try:
             self.client.get_collection(name=self.collection_name)
 
@@ -26,7 +26,7 @@ class DBClient:
             print(f"Collection {self.collection_name} has been created") # change to logger
 
     def embedder(self, texts):
-        return Embedder.encode(texts=texts)
+        return self.embedder_obj.encode(texts=texts)
     
     def load_data(self, path):
         try:
@@ -42,7 +42,7 @@ class DBClient:
         return chunks
 
     def extract_data(self):
-        chunks = self.load_data("data/raw/processed")
+        chunks = self.load_data("data/raw/text.txt")
         
         if not chunks:
             print(f"No chunks to load") 
@@ -92,7 +92,7 @@ class DBClient:
 
         try:
             results = self.collection.query(
-                query_texts=query,
+                query_texts=[query],
                 n_results=n_results,
                 where=where
             )
