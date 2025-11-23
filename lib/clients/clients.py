@@ -4,8 +4,8 @@ from typing import TypedDict
 import chromadb
 
 
-from lib.processors import DataProcessor
-from lib.models import Embedder
+from processors.processor import DataProcessor
+from models.embedder import Embedder
 
 class DBClient:
     def __init__(self, path: str = "./chroma_db", collection_name: str = "rf_constitution"):
@@ -14,19 +14,23 @@ class DBClient:
         self.processor = DataProcessor()
         self.embedder_obj = Embedder()
         try:
-            self.client.get_collection(name=self.collection_name)
-
+            
+            
+            self.collection = self.client.get_collection(name=self.collection_name, embedding_function=Embedder())
+            
+            
             print(f"Collection {self.collection_name} has been found") # change to logger
-
-        except Exception:
+           
+        except (chromadb.errors.NotFoundError, ValueError):
             self.collection = self.client.create_collection(name=self.collection_name,
-                                                            embedding_function=self.embedder)
-
+                                                            embedding_function=Embedder())
+            self.extract_data()
+            
             print(f"Collection {self.collection_name} has not been found") # change to logger
             print(f"Collection {self.collection_name} has been created") # change to logger
 
-    def embedder(self, texts):
-        return self.embedder_obj.encode(texts=texts)
+    def embedder(self, input):
+        return self.embedder_obj.encode(texts=input)
     
     def load_data(self, path):
         try:
@@ -76,13 +80,34 @@ class DBClient:
                 ids.append(i)
             
         try:
-            self.collection.add(
-                documents=documents,
-                metadatas=metadatas,
-                ids=ids
-            )
 
-            print(f"Successfully added {len(chunks)} in database.") # change to logger
+
+            batch_size = 50  # Adjust this based on your GPU memory
+            total_added = 0
+        
+            for i in range(0, len(documents), batch_size):
+                end_idx = min(i + batch_size, len(documents))
+                
+                batch_documents = documents[i:end_idx]
+                batch_metadatas = metadatas[i:end_idx]
+                batch_ids = ids[i:end_idx]
+                
+                self.collection.add(
+                    documents=batch_documents,
+                    metadatas=batch_metadatas,
+                    ids=batch_ids
+                )
+                
+                total_added += len(batch_documents)
+                print(f"Added batch {i//batch_size + 1}: {len(batch_documents)} documents (total: {total_added})")
+            # self.collection.add(
+            #     documents=documents,
+            #     metadatas=metadatas,
+            #     ids=ids
+            # )
+
+            print(f"Successfully added {len(chunks)} in database.") 
+            
         
         except Exception:
             print(f"Something went wrong during adding chunks in database")# change to logger
@@ -93,16 +118,32 @@ class DBClient:
         try:
             results = self.collection.query(
                 query_texts=[query],
-                n_results=n_results,
-                where=where
+                n_results=n_results
             )
             return results
         
         except Exception as e:
-            print(f"Something went wrong during database search") # change to logger
+            print(f"Something went wrong during database search {e}") # change to logger
             return None
 
-                
+    def inspect_collection(self):
+        """Debug method to see what's in the collection"""
+        try:
+            # Get a sample of documents
+            sample = self.collection.peek(limit=10)
+            print("Sample documents in collection:")
+            for i, (doc, metadata, doc_id) in enumerate(zip(sample['documents'], sample['metadatas'], sample['ids'])):
+                print(f"ID: {doc_id}")
+                print(f"Metadata: {metadata}")
+                print(f"Text preview: {doc[:100]}...")
+                print("-" * 50)
+            
+            # Count total documents
+            count = self.collection.count()
+            print(f"Total documents in collection: {count}")
+            
+        except Exception as e:
+            print(f"Error inspecting collection: {e}")
 
 
 #Отдельные сервисы
